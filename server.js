@@ -1,214 +1,67 @@
-const http = require('http');
-const fs = require('fs');
+// server.js
+const express = require('express');
 const path = require('path');
-const url = require('url');
+const fetch = require('node-fetch'); // install with npm i node-fetch@2
+const cors = require('cors');
 
-const port = 8000;
+const app = express();
+const PORT = process.env.PORT || 8000;
 
-const server = http.createServer((req, res) => {
-  const parsedUrl = url.parse(req.url, true);
-  const pathname = parsedUrl.pathname;
+// Enable CORS for your frontend
+app.use(cors({ origin: 'https://nokycexch.xyz' }));
+app.use(express.json()); // parse JSON POST bodies
 
-  // Serve static files
-  if (pathname === '/' || pathname === '/index.html') {
-    fs.readFile(path.join(__dirname, 'index.html'), (err, data) => {
-      if (err) {
-        res.writeHead(404);
-        res.end('File not found');
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(data);
+// Serve frontend static files
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Route: /txs/?id=...
+app.get('/txs', (req, res) => {
+  const id = req.query.id;
+  if (!id) return res.status(400).send('Missing id parameter');
+
+  res.sendFile(path.join(__dirname, 'TXID', 'index.html'));
+});
+
+// Proxy helper function
+async function proxyPost(req, res, apiPath) {
+  try {
+    const response = await fetch(`https://api.ghostswap.io${apiPath}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
     });
-  } else if (pathname === '/styles.css') {
-    fs.readFile(path.join(__dirname, 'styles.css'), (err, data) => {
-      if (err) {
-        res.writeHead(404);
-        res.end('File not found');
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'text/css' });
-      res.end(data);
-    });
-  } else if (pathname === '/app.js') {
-    fs.readFile(path.join(__dirname, 'app.js'), (err, data) => {
-      if (err) {
-        res.writeHead(404);
-        res.end('File not found');
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'application/javascript' });
-      res.end(data);
-    });
-  } else if (pathname === '/coins.js') {
-    fs.readFile(path.join(__dirname, 'coins.js'), (err, data) => {
-      if (err) {
-        res.writeHead(404);
-        res.end('File not found');
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'application/javascript' });
-      res.end(data);
-    });
-  } else if (pathname === '/txs/') {
-    const { id } = parsedUrl.query;
-    if (!id) {
-      res.writeHead(400);
-      res.end('Missing id parameter');
-      return;
-    }
-    fs.readFile(path.join(__dirname, 'TXID', 'index.html'), (err, data) => {
-      if (err) {
-        res.writeHead(404);
-        res.end('File not found');
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(data);
-    });
-  } else if (pathname === '/api/createTransaction' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    req.on('end', () => {
-      // Proxy to GhostSwap API
-      const https = require('https');
-      const options = {
-        hostname: 'api.ghostswap.io',
-        path: '/api/createTransaction',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body)
-        }
-      };
 
-      const proxyReq = https.request(options, (proxyRes) => {
-        let data = '';
-        proxyRes.on('data', (chunk) => {
-          data += chunk;
-        });
-        proxyRes.on('end', () => {
-          res.writeHead(proxyRes.statusCode, { 'Content-Type': 'application/json' });
-          res.end(data);
-        });
-      });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (err) {
+    console.error('Proxy error:', err);
+    res.status(500).json({ error: 'Proxy error' });
+  }
+}
 
-      proxyReq.on('error', (error) => {
-        console.error('Proxy error:', error);
-        res.writeHead(500);
-        res.end('Proxy error');
-      });
+// API routes
+app.post('/api/createTransaction', (req, res) => proxyPost(req, res, '/api/createTransaction'));
+app.post('/api/getTransactions', (req, res) => proxyPost(req, res, '/api/getTransactions'));
+app.post('/api/getExchangeAmount', (req, res) => proxyPost(req, res, '/api/getExchangeAmount'));
 
-      proxyReq.write(body);
-      proxyReq.end();
-    });
-  } else if (pathname === '/api/getTransactions' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    req.on('end', () => {
-      // Proxy to GhostSwap API
-      const https = require('https');
-      const options = {
-        hostname: 'api.ghostswap.io',
-        path: '/api/getTransactions',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body)
-        }
-      };
+// Example: local exchange endpoint
+app.post('/exchange', (req, res) => {
+  try {
+    const { sendAmount, sendAsset, receiveAmount, receiveAsset, recipientAddress } = req.body;
+    const exchangeId = 'ex-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
 
-      const proxyReq = https.request(options, (proxyRes) => {
-        let data = '';
-        proxyRes.on('data', (chunk) => {
-          data += chunk;
-        });
-        proxyRes.on('end', () => {
-          res.writeHead(proxyRes.statusCode, { 'Content-Type': 'application/json' });
-          res.end(data);
-        });
-      });
-
-      proxyReq.on('error', (error) => {
-        console.error('Proxy error:', error);
-        res.writeHead(500);
-        res.end('Proxy error');
-      });
-
-      proxyReq.write(body);
-      proxyReq.end();
-    });
-  } else if (pathname === '/api/getExchangeAmount' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    req.on('end', () => {
-      // Proxy to GhostSwap API
-      const https = require('https');
-      const options = {
-        hostname: 'api.ghostswap.io',
-        path: '/api/getExchangeAmount',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body)
-        }
-      };
-
-      const proxyReq = https.request(options, (proxyRes) => {
-        let data = '';
-        proxyRes.on('data', (chunk) => {
-          data += chunk;
-        });
-        proxyRes.on('end', () => {
-          res.writeHead(proxyRes.statusCode, { 'Content-Type': 'application/json' });
-          res.end(data);
-        });
-      });
-
-      proxyReq.on('error', (error) => {
-        console.error('Proxy error:', error);
-        res.writeHead(500);
-        res.end('Proxy error');
-      });
-
-      proxyReq.write(body);
-      proxyReq.end();
-    });
-  } else if (pathname === '/exchange' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    req.on('end', () => {
-      try {
-        const data = JSON.parse(body);
-        const { sendAmount, sendAsset, receiveAmount, receiveAsset, recipientAddress } = data;
-
-        // Generate a fake exchange ID
-        const exchangeId = 'ex-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-
-        // Log the exchange data
-        console.log('New exchange:', { exchangeId, sendAmount, sendAsset, receiveAmount, receiveAsset, recipientAddress });
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ exchangeId }));
-      } catch (error) {
-        res.writeHead(400);
-        res.end('Invalid JSON');
-      }
-    });
-  } else {
-    res.writeHead(404);
-    res.end('Not found');
+    console.log('New exchange:', { exchangeId, sendAmount, sendAsset, receiveAmount, receiveAsset, recipientAddress });
+    res.json({ exchangeId });
+  } catch (err) {
+    res.status(400).json({ error: 'Invalid JSON' });
   }
 });
 
-server.listen(port, () => {
-  console.log(`Server running at http://127.0.0.1:${port}`);
+// Catch-all: serve index.html for SPA routing
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running at http://localhost:${PORT}`);
 });
