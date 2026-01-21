@@ -57,11 +57,9 @@ app.post('/exchange', (req, res) => {
   }
 });
 
-// Catch-all: serve index.html for SPA routing
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
 });
+
